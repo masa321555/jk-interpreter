@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>日韓かいわ通訳（Safari版）</title>
+<style>
+  :root{
+    --bg:#f6f3ee; --card:#ffffff; --ink:#2b2622; --sub:#8a8178;
+    --ja:#d8532b; --ko:#2b6cb0; --line:#e7e0d7; --accent:#2b2622; --radius:18px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP","Noto Sans KR",sans-serif;
+    background:var(--bg);color:var(--ink);display:flex;flex-direction:column;
+    padding-top:env(safe-area-inset-top);
+    padding-left:env(safe-area-inset-left);
+    padding-right:env(safe-area-inset-right);
+  }
+  header{display:flex;align-items:center;justify-content:space-between;padding:14px 18px 10px}
+  header h1{font-size:17px;font-weight:700}
+  header h1 small{display:block;font-size:11px;font-weight:500;color:var(--sub);margin-top:2px}
+  .icon-btn{border:1px solid var(--line);background:var(--card);color:var(--ink);
+    width:40px;height:40px;border-radius:12px;font-size:18px;
+    display:flex;align-items:center;justify-content:center;cursor:pointer}
+  #chat{flex:1;overflow-y:auto;padding:8px 16px 16px;display:flex;flex-direction:column;gap:12px;overscroll-behavior:contain}
+  .hint{text-align:center;color:var(--sub);font-size:13px;line-height:1.9;margin:auto;padding:24px}
+  .hint .big{font-size:15px;color:var(--ink);font-weight:600;margin-bottom:6px}
+  .bubble{max-width:86%;background:var(--card);border:1px solid var(--line);
+    border-radius:var(--radius);padding:12px 14px;display:flex;flex-direction:column;gap:8px;animation:pop .18s ease-out}
+  @keyframes pop{from{transform:translateY(6px);opacity:0}to{transform:none;opacity:1}}
+  .bubble.ja{align-self:flex-end;border-bottom-right-radius:6px}
+  .bubble.ko{align-self:flex-start;border-bottom-left-radius:6px}
+  .tag{font-size:10px;font-weight:700;letter-spacing:.08em}
+  .bubble.ja .tag{color:var(--ja)} .bubble.ko .tag{color:var(--ko)}
+  .orig{font-size:14px;color:var(--sub);line-height:1.5}
+  .trans-row{display:flex;align-items:flex-start;gap:8px;border-top:1px dashed var(--line);padding-top:8px}
+  .trans{flex:1;font-size:17px;font-weight:600;line-height:1.5}
+  .bubble.ja .trans{color:#1d4e89} .bubble.ko .trans{color:#b4451f}
+  .play{flex:none;border:none;cursor:pointer;width:34px;height:34px;border-radius:50%;
+    font-size:15px;display:flex;align-items:center;justify-content:center;color:#fff}
+  .bubble.ja .play{background:var(--ko)} .bubble.ko .play{background:var(--ja)}
+  .play.speaking{animation:pulse 1s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.55}}
+  #status{text-align:center;font-size:13px;color:var(--sub);min-height:20px;padding:0 16px 6px}
+  #status.live{color:var(--ja);font-weight:600}
+  #partial{display:none;margin:0 16px 8px;padding:10px 14px;border-radius:14px;
+    background:#fff;border:1px solid var(--line);font-size:15px;max-height:84px;overflow-y:auto}
+  #controls{padding:6px 16px calc(14px + env(safe-area-inset-bottom));
+    display:flex;flex-direction:column;gap:10px;background:var(--bg);border-top:1px solid var(--line)}
+  #micRow{display:flex;gap:12px}
+  .talk{
+    flex:1;border:none;border-radius:20px;padding:20px 10px;cursor:pointer;color:#fff;
+    font-size:17px;font-weight:700;line-height:1.5;
+    box-shadow:0 5px 14px rgba(43,38,34,.2);transition:transform .12s ease;
+  }
+  .talk small{display:block;font-size:11px;font-weight:500;opacity:.85}
+  .talk:active{transform:scale(.96)}
+  #btnJa{background:var(--ja)} #btnKo{background:var(--ko)}
+  .talk.listening{animation:glow 1.2s infinite;outline:3px solid rgba(198,40,40,.4)}
+  .talk.off{opacity:.45}
+  @keyframes glow{0%,100%{box-shadow:0 0 0 0 rgba(198,40,40,.45)}70%{box-shadow:0 0 0 16px rgba(198,40,40,0)}}
+  #typeRow{display:flex;gap:8px}
+  #typeInput{flex:1;border:1px solid var(--line);border-radius:14px;padding:12px 14px;
+    font-size:16px;background:var(--card);color:var(--ink);outline:none}
+  #typeInput:focus{border-color:var(--accent)}
+  #sendBtn{border:none;border-radius:14px;padding:0 18px;font-size:15px;font-weight:700;
+    background:var(--accent);color:#fff;cursor:pointer}
+  #sendBtn:disabled{background:#c9c2b9}
+  #overlay{position:fixed;inset:0;background:rgba(43,38,34,.4);display:none;z-index:9}
+  #sheet{position:fixed;left:0;right:0;bottom:0;z-index:10;display:none;
+    background:var(--card);border-radius:22px 22px 0 0;
+    padding:20px 20px calc(24px + env(safe-area-inset-bottom));max-height:80vh;overflow-y:auto}
+  #sheet h2{font-size:16px;margin-bottom:4px}
+  #sheet .note{font-size:12px;color:var(--sub);margin-bottom:14px;line-height:1.6}
+  .set-group{border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+  .set-group h3{font-size:13px;margin-bottom:10px;display:flex;align-items:center;gap:6px}
+  .dot{width:9px;height:9px;border-radius:50%}
+  .dot.ja{background:var(--ja)} .dot.ko{background:var(--ko)}
+  .seg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:10px}
+  .seg button{flex:1;border:none;background:transparent;padding:10px;font-size:14px;cursor:pointer;color:var(--sub)}
+  .seg button.on{background:var(--accent);color:#fff;font-weight:700}
+  select{width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;font-size:14px;background:#fff;color:var(--ink)}
+  .test-btn{margin-top:8px;width:100%;padding:10px;border-radius:10px;border:1px solid var(--line);
+    background:#faf8f5;font-size:14px;cursor:pointer;color:var(--ink)}
+  .toggle-row{display:flex;align-items:center;justify-content:space-between;padding:4px 2px}
+  .toggle-row span{font-size:14px}
+  .switch{position:relative;width:48px;height:28px}
+  .switch input{opacity:0;width:0;height:0}
+  .slider{position:absolute;inset:0;background:#d6cfc6;border-radius:28px;cursor:pointer;transition:.2s}
+  .slider:before{content:"";position:absolute;width:22px;height:22px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s}
+  input:checked + .slider{background:var(--accent)}
+  input:checked + .slider:before{transform:translateX(20px)}
+  #closeSheet{margin-top:6px;width:100%;padding:13px;border:none;border-radius:14px;
+    background:var(--accent);color:#fff;font-size:15px;font-weight:700;cursor:pointer}
+  .warn{font-size:12px;color:#a05a1f;background:#fdf3e4;border:1px solid #f0ddbe;border-radius:10px;padding:10px;line-height:1.6;margin-bottom:10px;display:none}
+</style>
+</head>
+<body>
+<header>
+  <h1>日韓かいわ通訳<small>일한 대화 통역 · Safari版</small></h1>
+  <button class="icon-btn" id="openSheet" aria-label="設定">⚙︎</button>
+</header>
+
+<div id="chat">
+  <div class="hint" id="emptyHint">
+    <div class="big">話す言語のボタンを押してください</div>
+    말하는 언어의 버튼을 눌러 주세요<br><br>
+    押すと通訳がはじまり、話し声を自動で<br>
+    翻訳し続けます（もう一度押すと停止）<br><br>
+    初回はマイクの許可を求められます
+  </div>
+</div>
+
+<div id="partial"></div>
+<div id="status"></div>
+
+<div id="controls">
+  <div id="micRow">
+    <button class="talk" id="btnJa">🎤 日本語で話す<small>→ 한국어로 통역</small></button>
+    <button class="talk" id="btnKo">🎤 한국어로 말하기<small>→ 日本語に通訳</small></button>
+  </div>
+  <div id="typeRow">
+    <input id="typeInput" type="text" placeholder="キーボード入力 / 입력" enterkeyhint="send">
+    <button id="sendBtn">翻訳</button>
+  </div>
+</div>
+
+<div id="overlay"></div>
+<div id="sheet">
+  <h2>設定 <span style="font-size:12px;color:var(--sub)">설정</span></h2>
+  <p class="note">読み上げの声を、日本語・韓国語それぞれ女性／男性から選べます。使える声は端末により異なります。</p>
+  <div class="warn" id="voiceWarn"></div>
+
+  <div class="set-group">
+    <h3><span class="dot ja"></span>日本語の声（韓国語→日本語の出力）</h3>
+    <div class="seg" id="segJa"><button data-g="female">女性</button><button data-g="male">男性</button></div>
+    <select id="voiceJa"></select>
+    <button class="test-btn" data-test="ja">▶ テスト再生（こんにちは）</button>
+  </div>
+
+  <div class="set-group">
+    <h3><span class="dot ko"></span>韓国語の声（日本語→韓国語の出力）</h3>
+    <div class="seg" id="segKo"><button data-g="female">女性</button><button data-g="male">男性</button></div>
+    <select id="voiceKo"></select>
+    <button class="test-btn" data-test="ko">▶ テスト再生（안녕하세요）</button>
+  </div>
+
+  <div class="set-group">
+    <div class="toggle-row">
+      <span>翻訳後に自動で読み上げる<br><small style="color:var(--sub)">번역 후 자동 재생</small></span>
+      <label class="switch"><input type="checkbox" id="autoSpeak" checked><span class="slider"></span></label>
+    </div>
+  </div>
+
+  <div class="set-group">
+    <div class="toggle-row">
+      <span>キーボード入力欄を表示<br><small style="color:var(--sub)">텍스트 입력창 표시</small></span>
+      <label class="switch"><input type="checkbox" id="showType"><span class="slider"></span></label>
+    </div>
+  </div>
+
+  <button id="closeSheet">閉じる / 닫기</button>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var chat=document.getElementById("chat");
+  var emptyHint=document.getElementById("emptyHint");
+  var statusEl=document.getElementById("status");
+  var partialEl=document.getElementById("partial");
+  var btnJa=document.getElementById("btnJa");
+  var btnKo=document.getElementById("btnKo");
+  var typeInput=document.getElementById("typeInput");
+  var sendBtn=document.getElementById("sendBtn");
+
+  var synth=window.speechSynthesis||null;
+  var SR=window.SpeechRecognition||window.webkitSpeechRecognition||null;
+  var voices=[];
+  var currentUtterBtn=null;
+
+  /* ---------- settings ---------- */
+  var settings={genderJa:"female",genderKo:"female",voiceJa:"",voiceKo:"",autoSpeak:true,showType:false};
+  try{
+    var saved=localStorage.getItem("jk-settings");
+    if(saved){ var p=JSON.parse(saved); for(var k in settings){ if(p[k]!==undefined) settings[k]=p[k]; } }
+  }catch(e){}
+  function saveSettings(){ try{localStorage.setItem("jk-settings",JSON.stringify(settings));}catch(e){} }
+
+  function setStatus(t,live){ statusEl.textContent=t||""; statusEl.className=live?"live":""; }
+  function applyTypeRow(){
+    document.getElementById("typeRow").style.display=(settings.showType||!SR)?"flex":"none";
+  }
+
+  /* ---------- voices ---------- */
+  var FEMALE_KEYS=["kyoko","o-ren","oren","mizuki","nanami","haruka","ayumi","sayaka","tomoko","kanya","shiori",
+                   "yuna","sun-hi","sunhi","sora","seoyeon","jimin","yu-jin","yujin","female","여성","女性","woman"];
+  var MALE_KEYS=["otoya","hattori","ichiro","keita","daichi","naoki","takumi","kenji",
+                 "injoon","in-joon","hyunsu","minsang","gook","male","남성","男性","man"];
+  function loadVoices(){ if(!synth) return; voices=synth.getVoices()||[]; populateVoiceSelects(); }
+  function voicesFor(lang){
+    return voices.filter(function(v){return (v.lang||"").toLowerCase().replace("_","-").indexOf(lang)===0;});
+  }
+  function matchGender(v,keys){
+    var n=(v.name||"").toLowerCase();
+    return keys.some(function(k){return n.indexOf(k)>=0;});
+  }
+  function pickVoice(lang,gender,manual){
+    var vs=voicesFor(lang);
+    if(!vs.length) return null;
+    if(manual){ for(var i=0;i<vs.length;i++){ if(vs[i].name===manual) return vs[i]; } }
+    var want=gender==="female"?FEMALE_KEYS:MALE_KEYS;
+    var avoid=gender==="female"?MALE_KEYS:FEMALE_KEYS;
+    var hit=vs.find(function(v){return matchGender(v,want);});
+    if(hit) return hit;
+    var neutral=vs.find(function(v){return !matchGender(v,avoid);});
+    return neutral||vs[0];
+  }
+  function populateVoiceSelects(){
+    var selJa=document.getElementById("voiceJa");
+    var selKo=document.getElementById("voiceKo");
+    var warn=document.getElementById("voiceWarn");
+    var fill=function(sel,lang,savedName){
+      var vs=voicesFor(lang);
+      sel.innerHTML="";
+      var auto=document.createElement("option");
+      auto.value=""; auto.textContent="自動で選ぶ（おすすめ）";
+      sel.appendChild(auto);
+      vs.forEach(function(v){
+        var o=document.createElement("option");
+        o.value=v.name;
+        o.textContent=v.name+(matchGender(v,FEMALE_KEYS)?"（女性）":matchGender(v,MALE_KEYS)?"（男性）":"");
+        sel.appendChild(o);
+      });
+      sel.value=savedName&&vs.some(function(v){return v.name===savedName;})?savedName:"";
+      return vs.length;
+    };
+    var nJa=fill(selJa,"ja",settings.voiceJa);
+    var nKo=fill(selKo,"ko",settings.voiceKo);
+    var msgs=[];
+    if(synth&&voices.length){
+      if(!nJa) msgs.push("この端末に日本語の音声が見つかりません。");
+      if(!nKo) msgs.push("この端末に韓国語の音声が見つかりません。iPhoneの「設定 > アクセシビリティ > 読み上げコンテンツ > 声 > 韓国語」で音声を追加できます。");
+      var jaHasBoth=voicesFor("ja").some(function(v){return matchGender(v,MALE_KEYS);})&&voicesFor("ja").some(function(v){return matchGender(v,FEMALE_KEYS);});
+      var koHasBoth=voicesFor("ko").some(function(v){return matchGender(v,MALE_KEYS);})&&voicesFor("ko").some(function(v){return matchGender(v,FEMALE_KEYS);});
+      if(nJa&&nKo&&(!jaHasBoth||!koHasBoth)) msgs.push("男女どちらかの声が端末に入っていない言語は、近い声で読み上げます（上記の設定画面から声を追加できます）。");
+    }
+    warn.style.display=msgs.length?"block":"none";
+    warn.textContent=msgs.join(" ");
+  }
+  if(synth){
+    loadVoices();
+    if(typeof synth.onvoiceschanged!=="undefined") synth.onvoiceschanged=loadVoices;
+    setTimeout(loadVoices,800);
+  }
+
+  var audioUnlocked=false;
+  function unlockAudio(){
+    if(audioUnlocked||!synth) return;
+    try{ var u=new SpeechSynthesisUtterance(" "); u.volume=0; synth.speak(u); audioUnlocked=true; }catch(e){}
+  }
+
+  /* ---------- speak (with mic pause to avoid echo) ---------- */
+  var speakingNow=false;
+  function speak(text,lang,btn,queueMode){
+    if(!synth){ setStatus("この端末では読み上げできません"); return; }
+    try{
+      if(!queueMode){
+        synth.cancel();
+        if(currentUtterBtn) currentUtterBtn.classList.remove("speaking");
+      }
+      var isJa=lang==="ja";
+      var v=pickVoice(isJa?"ja":"ko", isJa?settings.genderJa:settings.genderKo, isJa?settings.voiceJa:settings.voiceKo);
+      var u=new SpeechSynthesisUtterance(text);
+      u.lang=isJa?"ja-JP":"ko-KR";
+      if(v) u.voice=v;
+      u.rate=0.95;
+      u.onstart=function(){ speakingNow=true; pauseRecForSpeak(); };
+      if(btn){ currentUtterBtn=btn; btn.classList.add("speaking"); }
+      var done=function(){
+        if(btn){ btn.classList.remove("speaking"); if(currentUtterBtn===btn) currentUtterBtn=null; }
+        setTimeout(function(){
+          if(!synth.speaking){ speakingNow=false; resumeRecAfterSpeak(); }
+        },500);
+      };
+      u.onend=done; u.onerror=done;
+      synth.speak(u);
+    }catch(e){ setStatus("読み上げに失敗しました"); }
+  }
+
+  /* ---------- bubbles ---------- */
+  function addBubble(srcLang,original,translation){
+    if(emptyHint){ emptyHint.remove(); emptyHint=null; }
+    var isJa=srcLang==="ja";
+    var b=document.createElement("div");
+    b.className="bubble "+(isJa?"ja":"ko");
+    var tag=document.createElement("div");
+    tag.className="tag";
+    tag.textContent=isJa?"日本語 → 한국어":"한국어 → 日本語";
+    var orig=document.createElement("div");
+    orig.className="orig"; orig.textContent=original;
+    var row=document.createElement("div");
+    row.className="trans-row";
+    var tr=document.createElement("div");
+    tr.className="trans"; tr.textContent=translation;
+    var play=document.createElement("button");
+    play.className="play"; play.textContent="🔊";
+    var outLang=isJa?"ko":"ja";
+    play.addEventListener("click",function(){ unlockAudio(); speak(translation,outLang,play); });
+    row.appendChild(tr); row.appendChild(play);
+    b.appendChild(tag); b.appendChild(orig); b.appendChild(row);
+    chat.appendChild(b);
+    chat.scrollTop=chat.scrollHeight;
+    return play;
+  }
+
+  /* ---------- translation (MyMemory free API) ---------- */
+  function hasHangul(t){ return /[가-힯ᄀ-ᇿ]/.test(t); }
+  var tQueue=Promise.resolve();
+  function translate(text,srcLang){
+    tQueue=tQueue.then(function(){ return doTranslate(text,srcLang); }).catch(function(){});
+  }
+  function doTranslate(text,srcLang){
+    text=(text||"").trim();
+    if(!text) return Promise.resolve();
+    var src=srcLang||(hasHangul(text)?"ko":"ja");
+    var tgt=src==="ja"?"ko":"ja";
+    setStatus(activeLang?"翻訳中…（続けて話せます）":"翻訳中… 번역 중…",!!activeLang);
+    var url="https://api.mymemory.translated.net/get?q="+encodeURIComponent(text)+"&langpair="+src+"|"+tgt;
+    return fetch(url).then(function(r){ return r.json(); }).then(function(j){
+      var t=j&&j.responseData&&j.responseData.translatedText;
+      if(!t||(j.responseStatus&&j.responseStatus!==200)) throw new Error("mt");
+      var tmp=document.createElement("textarea"); tmp.innerHTML=t;
+      t=tmp.value;
+      var playBtn=addBubble(src,text,t);
+      setStatus(activeLang?"通訳中… 듣고 있어요…":"",!!activeLang);
+      if(settings.autoSpeak) speak(t,tgt,playBtn,!!activeLang);
+    }).catch(function(){
+      setStatus("翻訳に失敗しました（通信状況や1日の無料翻訳上限をご確認ください）");
+    });
+  }
+
+  /* ---------- speech recognition (continuous) ---------- */
+  var rec=null, activeLang=null, suppressRestart=false, pausedForSpeak=false;
+  var finalBuffer="", partialText="", flushTimer=null;
+  var FLUSH_MS=1300;
+
+  function showPartial(){
+    var t=(finalBuffer+" "+partialText).trim();
+    if(t&&activeLang){ partialEl.style.display="block"; partialEl.textContent=t; partialEl.scrollTop=partialEl.scrollHeight; }
+    else{ partialEl.style.display="none"; partialEl.textContent=""; }
+  }
+  function scheduleFlush(){
+    if(flushTimer) clearTimeout(flushTimer);
+    flushTimer=setTimeout(flushPending,FLUSH_MS);
+  }
+  function flushPending(){
+    if(flushTimer){ clearTimeout(flushTimer); flushTimer=null; }
+    var t=finalBuffer.trim();
+    finalBuffer="";
+    showPartial();
+    if(t) translate(t,activeLang);
+  }
+  function updateBtns(){
+    btnJa.classList.toggle("listening",activeLang==="ja");
+    btnKo.classList.toggle("listening",activeLang==="ko");
+    btnJa.classList.toggle("off",activeLang==="ko");
+    btnKo.classList.toggle("off",activeLang==="ja");
+  }
+  function makeRec(lang){
+    var r=new SR();
+    r.lang=lang==="ja"?"ja-JP":"ko-KR";
+    r.continuous=true;
+    r.interimResults=true;
+    r.onresult=function(ev){
+      if(speakingNow) return;
+      var interim="";
+      for(var i=ev.resultIndex;i<ev.results.length;i++){
+        var res=ev.results[i];
+        var tx=(res[0]&&res[0].transcript)||"";
+        if(res.isFinal){
+          if(tx.trim()){ finalBuffer=(finalBuffer+" "+tx).trim(); scheduleFlush(); }
+        }else{ interim+=tx; }
+      }
+      partialText=interim;
+      showPartial();
+      if(interim&&flushTimer){ clearTimeout(flushTimer); flushTimer=null; }
+    };
+    r.onend=function(){
+      /* iOSは無音などで勝手に止まるため、通訳中なら自動再開する */
+      if(activeLang===lang&&!suppressRestart&&!pausedForSpeak){
+        setTimeout(function(){
+          if(activeLang===lang&&!pausedForSpeak){ try{r.start();}catch(e){} }
+        },250);
+      }
+    };
+    r.onerror=function(e){
+      if(e.error==="not-allowed"||e.error==="service-not-allowed"){
+        stopInterp();
+        setStatus("マイクが許可されていません。Safariのサイト設定でマイクを「許可」にし、iPhoneの「設定 > Siriと音声入力」で音声入力を有効にしてください。");
+      }
+    };
+    return r;
+  }
+  function pauseRecForSpeak(){
+    if(!activeLang||!rec) return;
+    pausedForSpeak=true;
+    try{rec.stop();}catch(e){}
+  }
+  function resumeRecAfterSpeak(){
+    if(!activeLang||!rec||!pausedForSpeak) return;
+    pausedForSpeak=false;
+    try{rec.start();}catch(e){}
+  }
+  function startInterp(lang){
+    stopInterp(true);
+    activeLang=lang;
+    finalBuffer=""; partialText="";
+    updateBtns();
+    setStatus(lang==="ja"?"通訳中…日本語で話してください（もう一度押すと停止）":"통역 중… 한국어로 말해 주세요 (다시 누르면 정지)",true);
+    rec=makeRec(lang);
+    try{ rec.start(); }
+    catch(e){ stopInterp(); setStatus("マイクを開始できませんでした。もう一度お試しください。"); }
+  }
+  function stopInterp(silent){
+    suppressRestart=true;
+    if(flushTimer){ clearTimeout(flushTimer); flushTimer=null; }
+    if(rec){ try{rec.stop();}catch(e){} rec=null; }
+    var lang=activeLang;
+    activeLang=null;
+    pausedForSpeak=false;
+    finalBuffer=(finalBuffer+" "+partialText).trim();
+    partialText="";
+    var t=finalBuffer; finalBuffer="";
+    showPartial();
+    updateBtns();
+    if(!silent){
+      setStatus("通訳を停止しました");
+      if(t) translate(t,lang);
+    }
+    setTimeout(function(){ suppressRestart=false; },400);
+  }
+  function toggle(lang){
+    unlockAudio();
+    if(!SR){ setStatus("このブラウザは音声認識に対応していません。入力欄をお使いください。"); return; }
+    if(activeLang===lang){ stopInterp(); return; }
+    if(synth){ try{synth.cancel();}catch(e){} }
+    startInterp(lang);
+  }
+  btnJa.addEventListener("click",function(){ toggle("ja"); });
+  btnKo.addEventListener("click",function(){ toggle("ko"); });
+  if(!SR){
+    setStatus("このブラウザは音声認識非対応のため、入力欄をお使いください。");
+  }
+
+  /* ---------- typing ---------- */
+  function sendTyped(){
+    unlockAudio();
+    var t=typeInput.value.trim();
+    if(!t) return;
+    typeInput.value="";
+    translate(t,null);
+  }
+  sendBtn.addEventListener("click",sendTyped);
+  typeInput.addEventListener("keydown",function(e){ if(e.key==="Enter"){ e.preventDefault(); sendTyped(); } });
+
+  /* ---------- settings sheet ---------- */
+  var sheet=document.getElementById("sheet");
+  var overlay=document.getElementById("overlay");
+  function openSheet(){ populateVoiceSelects(); syncSeg(); sheet.style.display="block"; overlay.style.display="block"; }
+  function closeSheet(){ sheet.style.display="none"; overlay.style.display="none"; }
+  document.getElementById("openSheet").addEventListener("click",openSheet);
+  document.getElementById("closeSheet").addEventListener("click",closeSheet);
+  overlay.addEventListener("click",closeSheet);
+
+  function syncSeg(){
+    [["segJa","genderJa"],["segKo","genderKo"]].forEach(function(pair){
+      var seg=document.getElementById(pair[0]);
+      Array.prototype.forEach.call(seg.querySelectorAll("button"),function(btn){
+        btn.classList.toggle("on",btn.getAttribute("data-g")===settings[pair[1]]);
+      });
+    });
+    document.getElementById("autoSpeak").checked=!!settings.autoSpeak;
+    document.getElementById("showType").checked=!!settings.showType;
+  }
+  [["segJa","genderJa","voiceJa"],["segKo","genderKo","voiceKo"]].forEach(function(pair){
+    document.getElementById(pair[0]).addEventListener("click",function(e){
+      var g=e.target&&e.target.getAttribute&&e.target.getAttribute("data-g");
+      if(!g) return;
+      settings[pair[1]]=g;
+      settings[pair[2]]="";
+      document.getElementById(pair[2]==="voiceJa"?"voiceJa":"voiceKo").value="";
+      saveSettings(); syncSeg();
+    });
+  });
+  document.getElementById("voiceJa").addEventListener("change",function(e){ settings.voiceJa=e.target.value; saveSettings(); });
+  document.getElementById("voiceKo").addEventListener("change",function(e){ settings.voiceKo=e.target.value; saveSettings(); });
+  document.getElementById("autoSpeak").addEventListener("change",function(e){ settings.autoSpeak=e.target.checked; saveSettings(); });
+  document.getElementById("showType").addEventListener("change",function(e){ settings.showType=e.target.checked; saveSettings(); applyTypeRow(); });
+  Array.prototype.forEach.call(document.querySelectorAll(".test-btn"),function(btn){
+    btn.addEventListener("click",function(){
+      unlockAudio();
+      var l=btn.getAttribute("data-test");
+      speak(l==="ja"?"こんにちは。よろしくお願いします。":"안녕하세요. 잘 부탁드려요.", l, null);
+    });
+  });
+  syncSeg();
+  applyTypeRow();
+})();
+</script>
+</body>
+</html>
