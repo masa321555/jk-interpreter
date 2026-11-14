@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>日韓かいわ通訳（Safari版）</title>
+<title>日韓かいわ通訳</title>
 <style>
   :root{
     --bg:#f6f3ee; --card:#ffffff; --ink:#2b2622; --sub:#8a8178;
@@ -49,7 +49,22 @@
     background:#fff;border:1px solid var(--line);font-size:15px;max-height:84px;overflow-y:auto}
   #controls{padding:6px 16px calc(14px + env(safe-area-inset-bottom));
     display:flex;flex-direction:column;gap:10px;background:var(--bg);border-top:1px solid var(--line)}
-  #micRow{display:flex;gap:12px}
+  /* --- auto (1-button) mode --- */
+  #autoRow{display:none;align-items:center;justify-content:center;gap:18px}
+  .side-label{width:84px;text-align:center;font-size:11px;color:var(--sub);line-height:1.6}
+  .side-label b{display:block;font-size:13px;color:var(--ink)}
+  #autoBtn{
+    width:84px;height:84px;border-radius:50%;border:none;cursor:pointer;
+    background:linear-gradient(145deg,#d8532b,#2b6cb0);
+    color:#fff;font-size:34px;
+    box-shadow:0 6px 18px rgba(43,38,34,.25);
+    display:flex;align-items:center;justify-content:center;
+    transition:transform .12s ease;
+  }
+  #autoBtn:active{transform:scale(.94)}
+  #autoBtn.listening{background:#c62828;animation:glow 1.2s infinite}
+  /* --- 2-button mode --- */
+  #micRow{display:none;gap:12px}
   .talk{
     flex:1;border:none;border-radius:20px;padding:20px 10px;cursor:pointer;color:#fff;
     font-size:17px;font-weight:700;line-height:1.5;
@@ -76,12 +91,13 @@
   #sheet .note{font-size:12px;color:var(--sub);margin-bottom:14px;line-height:1.6}
   .set-group{border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
   .set-group h3{font-size:13px;margin-bottom:10px;display:flex;align-items:center;gap:6px}
+  .set-group .mini{font-size:12px;color:var(--sub);line-height:1.6;margin-top:8px}
   .dot{width:9px;height:9px;border-radius:50%}
-  .dot.ja{background:var(--ja)} .dot.ko{background:var(--ko)}
+  .dot.ja{background:var(--ja)} .dot.ko{background:var(--ko)} .dot.ai{background:#7b5cc6}
   .seg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:10px}
   .seg button{flex:1;border:none;background:transparent;padding:10px;font-size:14px;cursor:pointer;color:var(--sub)}
   .seg button.on{background:var(--accent);color:#fff;font-weight:700}
-  select{width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;font-size:14px;background:#fff;color:var(--ink)}
+  select,.text-set{width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;font-size:14px;background:#fff;color:var(--ink)}
   .test-btn{margin-top:8px;width:100%;padding:10px;border-radius:10px;border:1px solid var(--line);
     background:#faf8f5;font-size:14px;cursor:pointer;color:var(--ink)}
   .toggle-row{display:flex;align-items:center;justify-content:space-between;padding:4px 2px}
@@ -99,16 +115,24 @@
 </head>
 <body>
 <header>
-  <h1>日韓かいわ通訳<small>일한 대화 통역 · Safari版</small></h1>
+  <h1>日韓かいわ通訳<small>일한 대화 통역</small></h1>
   <button class="icon-btn" id="openSheet" aria-label="設定">⚙︎</button>
 </header>
 
 <div id="chat">
   <div class="hint" id="emptyHint">
-    <div class="big">話す言語のボタンを押してください</div>
-    말하는 언어의 버튼을 눌러 주세요<br><br>
-    押すと通訳がはじまり、話し声を自動で<br>
-    翻訳し続けます（もう一度押すと停止）<br><br>
+    <div class="big">マイクボタンを押すと通訳をはじめます</div>
+    마이크 버튼을 누르면 통역을 시작해요<br><br>
+    <span id="hintModeAuto" style="display:none">
+      日本語・韓国語を自動で判別し、<br>
+      話し声を翻訳し続けます（もう一度押すと停止）
+    </span>
+    <span id="hintModeDual">
+      話す言語のボタンを押してください。<br>
+      話し声を翻訳し続けます（もう一度押すと停止）<br><br>
+      ⚙設定でAPIキーを登録すると、<br>
+      言語自動判別の1ボタンモードになります
+    </span><br><br>
     初回はマイクの許可を求められます
   </div>
 </div>
@@ -117,6 +141,11 @@
 <div id="status"></div>
 
 <div id="controls">
+  <div id="autoRow">
+    <div class="side-label"><b>日本語</b>→ 한국어</div>
+    <button id="autoBtn" aria-label="通訳開始">🎤</button>
+    <div class="side-label"><b>한국어</b>→ 日本語</div>
+  </div>
   <div id="micRow">
     <button class="talk" id="btnJa">🎤 日本語で話す<small>→ 한국어로 통역</small></button>
     <button class="talk" id="btnKo">🎤 한국어로 말하기<small>→ 日本語に通訳</small></button>
@@ -132,6 +161,17 @@
   <h2>設定 <span style="font-size:12px;color:var(--sub)">설정</span></h2>
   <p class="note">読み上げの声を、日本語・韓国語それぞれ女性／男性から選べます。使える声は端末により異なります。</p>
   <div class="warn" id="voiceWarn"></div>
+
+  <div class="set-group">
+    <h3><span class="dot ai"></span>言語自動判別（1ボタンモード）</h3>
+    <input class="text-set" id="apiKey" type="password" placeholder="Gemini APIキーを貼り付け" autocomplete="off">
+    <p class="mini">
+      Google AI Studio（aistudio.google.com/apikey）で無料発行できるAPIキーを貼ると、
+      言語を自動判別する1ボタンの通訳モードになり、翻訳品質も向上します。
+      キーはこの端末の中にだけ保存され、音声はGoogleのAPIにのみ送信されます。
+      空欄の場合は2ボタンモード（無料翻訳）で動作します。
+    </p>
+  </div>
 
   <div class="set-group">
     <h3><span class="dot ja"></span>日本語の声（韓国語→日本語の出力）</h3>
@@ -171,6 +211,7 @@
   var emptyHint=document.getElementById("emptyHint");
   var statusEl=document.getElementById("status");
   var partialEl=document.getElementById("partial");
+  var autoBtn=document.getElementById("autoBtn");
   var btnJa=document.getElementById("btnJa");
   var btnKo=document.getElementById("btnKo");
   var typeInput=document.getElementById("typeInput");
@@ -182,7 +223,7 @@
   var currentUtterBtn=null;
 
   /* ---------- settings ---------- */
-  var settings={genderJa:"female",genderKo:"female",voiceJa:"",voiceKo:"",autoSpeak:true,showType:false};
+  var settings={genderJa:"female",genderKo:"female",voiceJa:"",voiceKo:"",autoSpeak:true,showType:false,apiKey:""};
   try{
     var saved=localStorage.getItem("jk-settings");
     if(saved){ var p=JSON.parse(saved); for(var k in settings){ if(p[k]!==undefined) settings[k]=p[k]; } }
@@ -190,8 +231,18 @@
   function saveSettings(){ try{localStorage.setItem("jk-settings",JSON.stringify(settings));}catch(e){} }
 
   function setStatus(t,live){ statusEl.textContent=t||""; statusEl.className=live?"live":""; }
+  function isAutoMode(){ return !!(settings.apiKey&&settings.apiKey.trim()); }
+  function applyMode(){
+    var auto=isAutoMode();
+    document.getElementById("autoRow").style.display=auto?"flex":"none";
+    document.getElementById("micRow").style.display=auto?"none":"flex";
+    var hA=document.getElementById("hintModeAuto"), hD=document.getElementById("hintModeDual");
+    if(hA&&hD){ hA.style.display=auto?"inline":"none"; hD.style.display=auto?"none":"inline"; }
+    applyTypeRow();
+  }
   function applyTypeRow(){
-    document.getElementById("typeRow").style.display=(settings.showType||!SR)?"flex":"none";
+    var micOk=isAutoMode()?!!(navigator.mediaDevices&&window.MediaRecorder):!!SR;
+    document.getElementById("typeRow").style.display=(settings.showType||!micOk)?"flex":"none";
   }
 
   /* ---------- voices ---------- */
@@ -262,7 +313,7 @@
     try{ var u=new SpeechSynthesisUtterance(" "); u.volume=0; synth.speak(u); audioUnlocked=true; }catch(e){}
   }
 
-  /* ---------- speak (with mic pause to avoid echo) ---------- */
+  /* ---------- speak ---------- */
   var speakingNow=false;
   function speak(text,lang,btn,queueMode){
     if(!synth){ setStatus("この端末では読み上げできません"); return; }
@@ -316,34 +367,246 @@
     return play;
   }
 
-  /* ---------- translation (MyMemory free API) ---------- */
+  function sessionActive(){ return !!activeLang||autoActive; }
+
+  /* ---------- Gemini ---------- */
+  var MODELS=["gemini-2.5-flash","gemini-2.0-flash","gemini-1.5-flash"];
+  var modelIdx=0;
+  function geminiCall(parts){
+    var body={
+      contents:[{parts:parts}],
+      generationConfig:{response_mime_type:"application/json",temperature:0.2}
+    };
+    var attempt=function(i){
+      var url="https://generativelanguage.googleapis.com/v1beta/models/"+MODELS[i]+":generateContent?key="+encodeURIComponent(settings.apiKey.trim());
+      return fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
+      .then(function(r){
+        if(r.status===404&&i<MODELS.length-1){ modelIdx=i+1; return attempt(i+1); }
+        if(!r.ok){ var e=new Error("http"); e.status=r.status; throw e; }
+        return r.json().then(function(j){
+          var t=j&&j.candidates&&j.candidates[0]&&j.candidates[0].content&&j.candidates[0].content.parts&&j.candidates[0].content.parts[0]&&j.candidates[0].content.parts[0].text;
+          if(!t) throw new Error("empty");
+          return JSON.parse(t);
+        });
+      });
+    };
+    return attempt(modelIdx);
+  }
+  var TRANSLATE_RULES='あなたは日本語と韓国語の家族間会話の通訳です。自然で温かい話し言葉に翻訳します（韓国語は해요体中心、日本語はです・ます調）。音声認識由来の明らかな誤りは文脈で自然に補正して構いません。';
+  function geminiAudio(b64,mime){
+    return geminiCall([
+      {text:TRANSLATE_RULES+'\n添付音声は日本語または韓国語の発話です。文字起こしして言語を判定し、もう一方の言語へ翻訳してください。\nJSONのみ出力: {"source":"ja"または"ko","original":"文字起こし","translation":"翻訳文"}\n無音・雑音・日韓以外で発話が聞き取れない場合は {"source":"none"} とだけ出力。'},
+      {inline_data:{mime_type:mime,data:b64}}
+    ]);
+  }
+  function geminiText(text){
+    return geminiCall([
+      {text:TRANSLATE_RULES+'\n次の発話の言語(ja/ko)を判定し、もう一方の言語へ翻訳してください。\n発話:\n"""\n'+text+'\n"""\nJSONのみ出力: {"source":"ja"または"ko","original":"補正後の原文","translation":"翻訳文"}'}
+    ]);
+  }
+  function geminiErrorMsg(e){
+    if(e&&e.status===400||e&&e.status===403) return "APIキーが正しくない可能性があります（⚙設定を確認）";
+    if(e&&e.status===429) return "APIの利用上限です。少し待ってからお試しください";
+    return "翻訳に失敗しました（通信状況をご確認ください）";
+  }
+
+  /* ---------- translation ---------- */
   function hasHangul(t){ return /[가-힯ᄀ-ᇿ]/.test(t); }
   var tQueue=Promise.resolve();
-  function translate(text,srcLang){
-    tQueue=tQueue.then(function(){ return doTranslate(text,srcLang); }).catch(function(){});
+  function enqueue(job){ tQueue=tQueue.then(job).catch(function(){}); }
+
+  function translateText(text,srcLang){
+    enqueue(function(){
+      text=(text||"").trim();
+      if(!text) return;
+      setStatus(sessionActive()?"翻訳中…（続けて話せます）":"翻訳中… 번역 중…",sessionActive());
+      var p;
+      if(isAutoMode()){
+        p=geminiText(text).then(function(res){
+          if(!res||!res.translation) throw new Error("empty");
+          return {src:res.source==="ko"?"ko":"ja",orig:res.original||text,trans:res.translation};
+        });
+      }else{
+        var src=srcLang||(hasHangul(text)?"ko":"ja");
+        var tgt=src==="ja"?"ko":"ja";
+        var url="https://api.mymemory.translated.net/get?q="+encodeURIComponent(text)+"&langpair="+src+"|"+tgt;
+        p=fetch(url).then(function(r){return r.json();}).then(function(j){
+          var t=j&&j.responseData&&j.responseData.translatedText;
+          if(!t||(j.responseStatus&&String(j.responseStatus)!=="200")) throw new Error("mt");
+          var tmp=document.createElement("textarea"); tmp.innerHTML=t;
+          return {src:src,orig:text,trans:tmp.value};
+        });
+      }
+      return p.then(function(r){ deliver(r.src,r.orig,r.trans); })
+        .catch(function(e){ setStatus(isAutoMode()?geminiErrorMsg(e):"翻訳に失敗しました（通信状況や無料翻訳の上限をご確認ください）"); });
+    });
   }
-  function doTranslate(text,srcLang){
-    text=(text||"").trim();
-    if(!text) return Promise.resolve();
-    var src=srcLang||(hasHangul(text)?"ko":"ja");
-    var tgt=src==="ja"?"ko":"ja";
-    setStatus(activeLang?"翻訳中…（続けて話せます）":"翻訳中… 번역 중…",!!activeLang);
-    var url="https://api.mymemory.translated.net/get?q="+encodeURIComponent(text)+"&langpair="+src+"|"+tgt;
-    return fetch(url).then(function(r){ return r.json(); }).then(function(j){
-      var t=j&&j.responseData&&j.responseData.translatedText;
-      if(!t||(j.responseStatus&&j.responseStatus!==200)) throw new Error("mt");
-      var tmp=document.createElement("textarea"); tmp.innerHTML=t;
-      t=tmp.value;
-      var playBtn=addBubble(src,text,t);
-      setStatus(activeLang?"通訳中… 듣고 있어요…":"",!!activeLang);
-      if(settings.autoSpeak) speak(t,tgt,playBtn,!!activeLang);
-    }).catch(function(){
-      setStatus("翻訳に失敗しました（通信状況や1日の無料翻訳上限をご確認ください）");
+  function translateAudio(blob){
+    enqueue(function(){
+      setStatus("翻訳中…（続けて話せます）",true);
+      return blobToB64(blob).then(function(b64){
+        return geminiAudio(b64,blob.type||"audio/mp4");
+      }).then(function(res){
+        if(!res||res.source==="none"||!res.translation){ setStatus(listeningStatus(),true); return; }
+        deliver(res.source==="ko"?"ko":"ja",res.original||"",res.translation);
+      }).catch(function(e){ setStatus(geminiErrorMsg(e)); });
+    });
+  }
+  function deliver(src,orig,trans){
+    var playBtn=addBubble(src,orig,trans);
+    setStatus(sessionActive()?listeningStatus():"",sessionActive());
+    if(settings.autoSpeak) speak(trans,src==="ja"?"ko":"ja",playBtn,sessionActive());
+  }
+  function listeningStatus(){ return "通訳中… 듣고 있어요…（もう一度押すと停止）"; }
+  function blobToB64(blob){
+    return new Promise(function(res,rej){
+      var fr=new FileReader();
+      fr.onload=function(){ res(String(fr.result).split(",")[1]||""); };
+      fr.onerror=rej;
+      fr.readAsDataURL(blob);
     });
   }
 
-  /* ---------- speech recognition (continuous) ---------- */
-  var rec=null, activeLang=null, suppressRestart=false, pausedForSpeak=false;
+  /* =========================================================
+     AUTO MODE: mic recording + VAD chunking + Gemini
+  ========================================================= */
+  var autoActive=false;
+  var mStream=null,mRec=null,mCtx=null,mAnalyser=null,vadTimer=null;
+  var chunkHadSpeech=false,chunkSpeechMs=0,silenceMs=0,chunkMs=0,chunkTainted=false,cutting=false;
+  var noiseFloor=0.008,calibrated=false,calibSamples=[];
+  var SILENCE_CUT=1200, MIN_SPEECH=350, MAX_CHUNK=15000, TICK=100;
+
+  function rms(){
+    var buf=new Uint8Array(mAnalyser.fftSize);
+    mAnalyser.getByteTimeDomainData(buf);
+    var s=0;
+    for(var i=0;i<buf.length;i++){ var d=(buf[i]-128)/128; s+=d*d; }
+    return Math.sqrt(s/buf.length);
+  }
+  function newRecorder(){
+    mRec=new MediaRecorder(mStream);
+    var chunks=[];
+    var tainted=false;
+    mRec.ondataavailable=function(e){ if(e.data&&e.data.size) chunks.push(e.data); };
+    mRec.taint=function(){ tainted=true; };
+    mRec.onstop=function(){
+      var ok=!tainted&&!chunkTaintedAtStop&&sendableAtStop;
+      if(ok&&chunks.length){
+        var blob=new Blob(chunks,{type:mRec.mimeType||"audio/mp4"});
+        if(blob.size>800) translateAudio(blob);
+      }
+      chunks=[];
+      if(autoActive&&!pausedForSpeak){ try{ newRecorder(); mRec.start(); }catch(e){} }
+    };
+  }
+  var chunkTaintedAtStop=false,sendableAtStop=false;
+  function cutChunk(send){
+    if(!mRec||mRec.state!=="recording"||cutting) return;
+    cutting=true;
+    sendableAtStop=!!send&&chunkHadSpeech&&chunkSpeechMs>=MIN_SPEECH;
+    chunkTaintedAtStop=chunkTainted;
+    chunkHadSpeech=false;chunkSpeechMs=0;silenceMs=0;chunkMs=0;chunkTainted=false;
+    try{ mRec.stop(); }catch(e){}
+    setTimeout(function(){ cutting=false; },50);
+  }
+  function vadTick(){
+    if(!autoActive||!mAnalyser) return;
+    var v=rms();
+    if(!calibrated){
+      calibSamples.push(v);
+      if(calibSamples.length>=6){
+        var avg=calibSamples.reduce(function(a,b){return a+b;},0)/calibSamples.length;
+        noiseFloor=Math.max(avg*2.2,0.01);
+        calibrated=true;
+      }
+      return;
+    }
+    if(speakingNow||pausedForSpeak){ chunkTainted=true; return; }
+    chunkMs+=TICK;
+    var talking=v>noiseFloor;
+    if(talking){
+      chunkHadSpeech=true;chunkSpeechMs+=TICK;silenceMs=0;
+      partialEl.style.display="block";
+      partialEl.textContent="…";
+    }else{
+      silenceMs+=TICK;
+    }
+    if(chunkHadSpeech&&silenceMs>=SILENCE_CUT){
+      partialEl.style.display="none";
+      cutChunk(true);
+    }else if(chunkMs>=MAX_CHUNK){
+      cutChunk(chunkHadSpeech);
+    }else if(!chunkHadSpeech&&chunkMs>=5000){
+      cutChunk(false);
+    }
+  }
+  var pausedForSpeak=false;
+  function pauseRecForSpeak(){
+    if(autoActive){ pausedForSpeak=true; cutChunk(false); return; }
+    if(activeLang&&rec){ pausedForSpeak=true; try{rec.stop();}catch(e){} }
+  }
+  function resumeRecAfterSpeak(){
+    if(!pausedForSpeak) return;
+    pausedForSpeak=false;
+    if(autoActive){ try{ if(!mRec||mRec.state!=="recording"){ newRecorder(); mRec.start(); } }catch(e){} return; }
+    if(activeLang&&rec){ try{rec.start();}catch(e){} }
+  }
+  function startAuto(){
+    if(!navigator.mediaDevices||!window.MediaRecorder){
+      setStatus("このブラウザは録音に対応していません。入力欄をお使いください。");
+      return;
+    }
+    navigator.mediaDevices.getUserMedia({audio:true}).then(function(stream){
+      mStream=stream;
+      autoActive=true;
+      try{
+        mCtx=new (window.AudioContext||window.webkitAudioContext)();
+        if(mCtx.state==="suspended") mCtx.resume();
+        var srcNode=mCtx.createMediaStreamSource(stream);
+        mAnalyser=mCtx.createAnalyser();
+        mAnalyser.fftSize=1024;
+        srcNode.connect(mAnalyser);
+      }catch(e){}
+      calibrated=false;calibSamples=[];
+      chunkHadSpeech=false;chunkSpeechMs=0;silenceMs=0;chunkMs=0;chunkTainted=false;
+      newRecorder();
+      mRec.start();
+      vadTimer=setInterval(vadTick,TICK);
+      autoBtn.classList.add("listening");
+      autoBtn.textContent="■";
+      setStatus(listeningStatus(),true);
+    }).catch(function(){
+      setStatus("マイクが許可されていません。Safariのサイト設定でマイクを「許可」にしてください。");
+    });
+  }
+  function stopAuto(){
+    autoActive=false;
+    pausedForSpeak=false;
+    if(vadTimer){ clearInterval(vadTimer); vadTimer=null; }
+    if(mRec&&mRec.state==="recording"){
+      sendableAtStop=chunkHadSpeech&&chunkSpeechMs>=MIN_SPEECH;
+      chunkTaintedAtStop=chunkTainted;
+      try{ mRec.stop(); }catch(e){}
+    }
+    mRec=null;
+    if(mStream){ mStream.getTracks().forEach(function(t){t.stop();}); mStream=null; }
+    if(mCtx){ try{mCtx.close();}catch(e){} mCtx=null; mAnalyser=null; }
+    partialEl.style.display="none";
+    autoBtn.classList.remove("listening");
+    autoBtn.textContent="🎤";
+    setStatus("通訳を停止しました");
+  }
+  autoBtn.addEventListener("click",function(){
+    unlockAudio();
+    if(autoActive){ stopAuto(); return; }
+    if(synth){ try{synth.cancel();}catch(e){} }
+    startAuto();
+  });
+
+  /* =========================================================
+     2-BUTTON MODE: Web Speech API (lang fixed per button)
+  ========================================================= */
+  var rec=null, activeLang=null, suppressRestart=false;
   var finalBuffer="", partialText="", flushTimer=null;
   var FLUSH_MS=1300;
 
@@ -361,7 +624,7 @@
     var t=finalBuffer.trim();
     finalBuffer="";
     showPartial();
-    if(t) translate(t,activeLang);
+    if(t) translateText(t,activeLang);
   }
   function updateBtns(){
     btnJa.classList.toggle("listening",activeLang==="ja");
@@ -389,7 +652,6 @@
       if(interim&&flushTimer){ clearTimeout(flushTimer); flushTimer=null; }
     };
     r.onend=function(){
-      /* iOSは無音などで勝手に止まるため、通訳中なら自動再開する */
       if(activeLang===lang&&!suppressRestart&&!pausedForSpeak){
         setTimeout(function(){
           if(activeLang===lang&&!pausedForSpeak){ try{r.start();}catch(e){} }
@@ -403,16 +665,6 @@
       }
     };
     return r;
-  }
-  function pauseRecForSpeak(){
-    if(!activeLang||!rec) return;
-    pausedForSpeak=true;
-    try{rec.stop();}catch(e){}
-  }
-  function resumeRecAfterSpeak(){
-    if(!activeLang||!rec||!pausedForSpeak) return;
-    pausedForSpeak=false;
-    try{rec.start();}catch(e){}
   }
   function startInterp(lang){
     stopInterp(true);
@@ -438,7 +690,7 @@
     updateBtns();
     if(!silent){
       setStatus("通訳を停止しました");
-      if(t) translate(t,lang);
+      if(t) translateText(t,lang);
     }
     setTimeout(function(){ suppressRestart=false; },400);
   }
@@ -451,9 +703,6 @@
   }
   btnJa.addEventListener("click",function(){ toggle("ja"); });
   btnKo.addEventListener("click",function(){ toggle("ko"); });
-  if(!SR){
-    setStatus("このブラウザは音声認識非対応のため、入力欄をお使いください。");
-  }
 
   /* ---------- typing ---------- */
   function sendTyped(){
@@ -461,7 +710,7 @@
     var t=typeInput.value.trim();
     if(!t) return;
     typeInput.value="";
-    translate(t,null);
+    translateText(t,null);
   }
   sendBtn.addEventListener("click",sendTyped);
   typeInput.addEventListener("keydown",function(e){ if(e.key==="Enter"){ e.preventDefault(); sendTyped(); } });
@@ -470,7 +719,11 @@
   var sheet=document.getElementById("sheet");
   var overlay=document.getElementById("overlay");
   function openSheet(){ populateVoiceSelects(); syncSeg(); sheet.style.display="block"; overlay.style.display="block"; }
-  function closeSheet(){ sheet.style.display="none"; overlay.style.display="none"; }
+  function closeSheet(){
+    var k=document.getElementById("apiKey").value.trim();
+    if(k!==settings.apiKey){ settings.apiKey=k; saveSettings(); modelIdx=0; }
+    sheet.style.display="none"; overlay.style.display="none"; applyMode();
+  }
   document.getElementById("openSheet").addEventListener("click",openSheet);
   document.getElementById("closeSheet").addEventListener("click",closeSheet);
   overlay.addEventListener("click",closeSheet);
@@ -484,6 +737,7 @@
     });
     document.getElementById("autoSpeak").checked=!!settings.autoSpeak;
     document.getElementById("showType").checked=!!settings.showType;
+    document.getElementById("apiKey").value=settings.apiKey||"";
   }
   [["segJa","genderJa","voiceJa"],["segKo","genderKo","voiceKo"]].forEach(function(pair){
     document.getElementById(pair[0]).addEventListener("click",function(e){
@@ -499,6 +753,11 @@
   document.getElementById("voiceKo").addEventListener("change",function(e){ settings.voiceKo=e.target.value; saveSettings(); });
   document.getElementById("autoSpeak").addEventListener("change",function(e){ settings.autoSpeak=e.target.checked; saveSettings(); });
   document.getElementById("showType").addEventListener("change",function(e){ settings.showType=e.target.checked; saveSettings(); applyTypeRow(); });
+  document.getElementById("apiKey").addEventListener("change",function(e){
+    settings.apiKey=e.target.value.trim();
+    saveSettings();
+    modelIdx=0;
+  });
   Array.prototype.forEach.call(document.querySelectorAll(".test-btn"),function(btn){
     btn.addEventListener("click",function(){
       unlockAudio();
@@ -507,7 +766,10 @@
     });
   });
   syncSeg();
-  applyTypeRow();
+  applyMode();
+  if(!SR&&!isAutoMode()){
+    setStatus("このブラウザは音声認識非対応のため、入力欄をお使いください。");
+  }
 })();
 </script>
 </body>
