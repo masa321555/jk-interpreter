@@ -241,7 +241,7 @@
     applyTypeRow();
   }
   function applyTypeRow(){
-    var micOk=isAutoMode()?!!(navigator.mediaDevices&&window.MediaRecorder):!!SR;
+    var micOk=isAutoMode()?!!(navigator.mediaDevices&&(window.AudioContext||window.webkitAudioContext)):!!SR;
     document.getElementById("typeRow").style.display=(settings.showType||!micOk)?"flex":"none";
   }
 
@@ -370,7 +370,7 @@
   function sessionActive(){ return !!activeLang||autoActive; }
 
   /* ---------- Gemini ---------- */
-  var MODELS=["gemini-2.5-flash","gemini-2.0-flash","gemini-1.5-flash"];
+  var MODELS=["gemini-2.5-flash","gemini-2.0-flash","gemini-flash-latest"];
   var modelIdx=0;
   function geminiCall(parts){
     var body={
@@ -383,14 +383,22 @@
       .then(function(r){
         if(r.status===404&&i<MODELS.length-1){ modelIdx=i+1; return attempt(i+1); }
         if(!r.ok){ var e=new Error("http"); e.status=r.status; throw e; }
-        return r.json().then(function(j){
-          var t=j&&j.candidates&&j.candidates[0]&&j.candidates[0].content&&j.candidates[0].content.parts&&j.candidates[0].content.parts[0]&&j.candidates[0].content.parts[0].text;
-          if(!t) throw new Error("empty");
-          return JSON.parse(t);
-        });
+        return r.json().then(extractJSON);
       });
     };
     return attempt(modelIdx);
+  }
+  function extractJSON(j){
+    var cand=j&&j.candidates&&j.candidates[0];
+    var parts=(cand&&cand.content&&cand.content.parts)||[];
+    var txt=parts.map(function(p){return p.text||"";}).join("");
+    if(!txt){
+      var e=new Error("blocked"); e.code=(j&&j.promptFeedback&&j.promptFeedback.blockReason)?"blocked":"parse"; throw e;
+    }
+    txt=txt.trim().replace(/^```(?:json)?/i,"").replace(/```$/,"").trim();
+    var m=txt.match(/\{[\s\S]*\}/);
+    if(!m){ var e2=new Error("parse"); e2.code="parse"; throw e2; }
+    return JSON.parse(m[0]);
   }
   var TRANSLATE_RULES='あなたは日本語と韓国語の家族間会話の通訳です。自然で温かい話し言葉に翻訳します（韓国語は해요体中心、日本語はです・ます調）。音声認識由来の明らかな誤りは文脈で自然に補正して構いません。';
   function geminiAudio(b64,mime){
@@ -405,9 +413,13 @@
     ]);
   }
   function geminiErrorMsg(e){
-    if(e&&e.status===400||e&&e.status===403) return "APIキーが正しくない可能性があります（⚙設定を確認）";
-    if(e&&e.status===429) return "APIの利用上限です。少し待ってからお試しください";
-    return "翻訳に失敗しました（通信状況をご確認ください）";
+    var st=e&&e.status;
+    if(st===400||st===403) return "APIキーが正しくない可能性があります（⚙設定を確認）[HTTP "+st+"]";
+    if(st===429) return "APIの利用上限です。少し待ってからお試しください";
+    if(st) return "翻訳に失敗しました [HTTP "+st+"]";
+    if(e&&e.code==="blocked") return "安全フィルタにより処理されませんでした";
+    if(e&&e.code==="parse") return "AIの応答を解析できませんでした";
+    return "翻訳に失敗しました（通信エラー: "+((e&&e.message)||"不明")+"）";
   }
 
   /* ---------- translation ---------- */
@@ -468,110 +480,108 @@
   }
 
   /* =========================================================
-     AUTO MODE: mic recording + VAD chunking + Gemini
+     AUTO MODE: PCM録音 + VAD区切り + Gemini (WAV送信)
   ========================================================= */
   var autoActive=false;
-  var mStream=null,mRec=null,mCtx=null,mAnalyser=null,vadTimer=null;
-  var chunkHadSpeech=false,chunkSpeechMs=0,silenceMs=0,chunkMs=0,chunkTainted=false,cutting=false;
-  var noiseFloor=0.008,calibrated=false,calibSamples=[];
-  var SILENCE_CUT=1200, MIN_SPEECH=350, MAX_CHUNK=15000, TICK=100;
+  var mStream=null,mCtx=null,mProc=null,mSrcNode=null;
+  var pcm=[],pcmLen=0,srcRate=48000;
+  var chunkHadSpeech=false,chunkSpeechMs=0,silenceMs=0,chunkMs=0;
+  var noiseFloor=0.01,calibMs=0,calibAcc=0,calibN=0;
+  var SILENCE_CUT=1200, MIN_SPEECH=350, MAX_CHUNK=15000;
 
-  function rms(){
-    var buf=new Uint8Array(mAnalyser.fftSize);
-    mAnalyser.getByteTimeDomainData(buf);
-    var s=0;
-    for(var i=0;i<buf.length;i++){ var d=(buf[i]-128)/128; s+=d*d; }
-    return Math.sqrt(s/buf.length);
-  }
-  function newRecorder(){
-    mRec=new MediaRecorder(mStream);
-    var chunks=[];
-    var tainted=false;
-    mRec.ondataavailable=function(e){ if(e.data&&e.data.size) chunks.push(e.data); };
-    mRec.taint=function(){ tainted=true; };
-    mRec.onstop=function(){
-      var ok=!tainted&&!chunkTaintedAtStop&&sendableAtStop;
-      if(ok&&chunks.length){
-        var blob=new Blob(chunks,{type:mRec.mimeType||"audio/mp4"});
-        if(blob.size>800) translateAudio(blob);
-      }
-      chunks=[];
-      if(autoActive&&!pausedForSpeak){ try{ newRecorder(); mRec.start(); }catch(e){} }
-    };
-  }
-  var chunkTaintedAtStop=false,sendableAtStop=false;
-  function cutChunk(send){
-    if(!mRec||mRec.state!=="recording"||cutting) return;
-    cutting=true;
-    sendableAtStop=!!send&&chunkHadSpeech&&chunkSpeechMs>=MIN_SPEECH;
-    chunkTaintedAtStop=chunkTainted;
-    chunkHadSpeech=false;chunkSpeechMs=0;silenceMs=0;chunkMs=0;chunkTainted=false;
-    try{ mRec.stop(); }catch(e){}
-    setTimeout(function(){ cutting=false; },50);
-  }
-  function vadTick(){
-    if(!autoActive||!mAnalyser) return;
-    var v=rms();
-    if(!calibrated){
-      calibSamples.push(v);
-      if(calibSamples.length>=6){
-        var avg=calibSamples.reduce(function(a,b){return a+b;},0)/calibSamples.length;
-        noiseFloor=Math.max(avg*2.2,0.01);
-        calibrated=true;
-      }
-      return;
-    }
-    if(speakingNow||pausedForSpeak){ chunkTainted=true; return; }
-    chunkMs+=TICK;
-    var talking=v>noiseFloor;
-    if(talking){
-      chunkHadSpeech=true;chunkSpeechMs+=TICK;silenceMs=0;
-      partialEl.style.display="block";
-      partialEl.textContent="…";
-    }else{
-      silenceMs+=TICK;
-    }
-    if(chunkHadSpeech&&silenceMs>=SILENCE_CUT){
-      partialEl.style.display="none";
-      cutChunk(true);
-    }else if(chunkMs>=MAX_CHUNK){
-      cutChunk(chunkHadSpeech);
-    }else if(!chunkHadSpeech&&chunkMs>=5000){
-      cutChunk(false);
-    }
-  }
   var pausedForSpeak=false;
   function pauseRecForSpeak(){
-    if(autoActive){ pausedForSpeak=true; cutChunk(false); return; }
+    if(autoActive){ pausedForSpeak=true; finalizeChunk(); return; }
     if(activeLang&&rec){ pausedForSpeak=true; try{rec.stop();}catch(e){} }
   }
   function resumeRecAfterSpeak(){
     if(!pausedForSpeak) return;
     pausedForSpeak=false;
-    if(autoActive){ try{ if(!mRec||mRec.state!=="recording"){ newRecorder(); mRec.start(); } }catch(e){} return; }
+    if(autoActive) return; /* PCM側はフラグ解除だけで再開 */
     if(activeLang&&rec){ try{rec.start();}catch(e){} }
   }
+
+  function resetChunk(){ pcm=[];pcmLen=0;chunkHadSpeech=false;chunkSpeechMs=0;silenceMs=0;chunkMs=0; }
+  function mergePcm(){
+    var out=new Float32Array(pcmLen),o=0;
+    for(var i=0;i<pcm.length;i++){ out.set(pcm[i],o); o+=pcm[i].length; }
+    return out;
+  }
+  function finalizeChunk(){
+    var send=chunkHadSpeech&&chunkSpeechMs>=MIN_SPEECH;
+    var buf=(send&&pcmLen)?mergePcm():null;
+    resetChunk();
+    partialEl.style.display="none";
+    if(buf) translateAudio(encodeWav(buf,srcRate));
+  }
+  function frameRms(a){ var s=0; for(var i=0;i<a.length;i++) s+=a[i]*a[i]; return Math.sqrt(s/a.length); }
+  function onAudioFrame(input){
+    var frameMs=input.length/srcRate*1000;
+    var v=frameRms(input);
+    if(calibMs<600){
+      calibMs+=frameMs; calibAcc+=v; calibN++;
+      if(calibMs>=600){ noiseFloor=Math.max((calibAcc/calibN)*2.2,0.01); }
+      return;
+    }
+    if(speakingNow||pausedForSpeak) return;
+    pcm.push(new Float32Array(input)); pcmLen+=input.length;
+    chunkMs+=frameMs;
+    if(v>noiseFloor){
+      chunkHadSpeech=true; chunkSpeechMs+=frameMs; silenceMs=0;
+      partialEl.style.display="block"; partialEl.textContent="…（認識中 / 인식 중）";
+    }else{
+      silenceMs+=frameMs;
+    }
+    if(chunkHadSpeech&&silenceMs>=SILENCE_CUT){ finalizeChunk(); }
+    else if(chunkMs>=MAX_CHUNK){ finalizeChunk(); }
+    else if(!chunkHadSpeech&&chunkMs>=4000){ resetChunk(); }
+  }
+  function downsample(buf,from,to){
+    if(to>=from) return buf;
+    var ratio=from/to, n=Math.floor(buf.length/ratio), out=new Float32Array(n);
+    for(var i=0;i<n;i++){
+      var st=Math.floor(i*ratio), en=Math.min(Math.floor((i+1)*ratio),buf.length), s=0,c=0;
+      for(var j=st;j<en;j++){ s+=buf[j]; c++; }
+      out[i]=c?s/c:0;
+    }
+    return out;
+  }
+  function encodeWav(float32,rate){
+    var TARGET=16000;
+    var data=rate>TARGET?downsample(float32,rate,TARGET):float32;
+    var sr=rate>TARGET?TARGET:rate;
+    var buf=new ArrayBuffer(44+data.length*2);
+    var dv=new DataView(buf);
+    function ws(o,s){ for(var i=0;i<s.length;i++) dv.setUint8(o+i,s.charCodeAt(i)); }
+    ws(0,"RIFF"); dv.setUint32(4,36+data.length*2,true); ws(8,"WAVE");
+    ws(12,"fmt "); dv.setUint32(16,16,true); dv.setUint16(20,1,true); dv.setUint16(22,1,true);
+    dv.setUint32(24,sr,true); dv.setUint32(28,sr*2,true); dv.setUint16(32,2,true); dv.setUint16(34,16,true);
+    ws(36,"data"); dv.setUint32(40,data.length*2,true);
+    var off=44;
+    for(var i=0;i<data.length;i++){
+      var s=Math.max(-1,Math.min(1,data[i]));
+      dv.setInt16(off,s<0?s*0x8000:s*0x7FFF,true); off+=2;
+    }
+    return new Blob([buf],{type:"audio/wav"});
+  }
   function startAuto(){
-    if(!navigator.mediaDevices||!window.MediaRecorder){
+    if(!navigator.mediaDevices||!(window.AudioContext||window.webkitAudioContext)){
       setStatus("このブラウザは録音に対応していません。入力欄をお使いください。");
       return;
     }
     navigator.mediaDevices.getUserMedia({audio:true}).then(function(stream){
       mStream=stream;
       autoActive=true;
-      try{
-        mCtx=new (window.AudioContext||window.webkitAudioContext)();
-        if(mCtx.state==="suspended") mCtx.resume();
-        var srcNode=mCtx.createMediaStreamSource(stream);
-        mAnalyser=mCtx.createAnalyser();
-        mAnalyser.fftSize=1024;
-        srcNode.connect(mAnalyser);
-      }catch(e){}
-      calibrated=false;calibSamples=[];
-      chunkHadSpeech=false;chunkSpeechMs=0;silenceMs=0;chunkMs=0;chunkTainted=false;
-      newRecorder();
-      mRec.start();
-      vadTimer=setInterval(vadTick,TICK);
+      mCtx=new (window.AudioContext||window.webkitAudioContext)();
+      if(mCtx.state==="suspended") mCtx.resume();
+      srcRate=mCtx.sampleRate||48000;
+      mSrcNode=mCtx.createMediaStreamSource(stream);
+      mProc=mCtx.createScriptProcessor(4096,1,1);
+      mProc.onaudioprocess=function(e){ if(autoActive) onAudioFrame(e.inputBuffer.getChannelData(0)); };
+      mSrcNode.connect(mProc);
+      mProc.connect(mCtx.destination);
+      calibMs=0;calibAcc=0;calibN=0;
+      resetChunk();
       autoBtn.classList.add("listening");
       autoBtn.textContent="■";
       setStatus(listeningStatus(),true);
@@ -580,21 +590,19 @@
     });
   }
   function stopAuto(){
+    var pending=(chunkHadSpeech&&chunkSpeechMs>=MIN_SPEECH&&pcmLen)?mergePcm():null;
     autoActive=false;
     pausedForSpeak=false;
-    if(vadTimer){ clearInterval(vadTimer); vadTimer=null; }
-    if(mRec&&mRec.state==="recording"){
-      sendableAtStop=chunkHadSpeech&&chunkSpeechMs>=MIN_SPEECH;
-      chunkTaintedAtStop=chunkTainted;
-      try{ mRec.stop(); }catch(e){}
-    }
-    mRec=null;
+    resetChunk();
+    if(mProc){ try{mProc.disconnect();}catch(e){} mProc.onaudioprocess=null; mProc=null; }
+    if(mSrcNode){ try{mSrcNode.disconnect();}catch(e){} mSrcNode=null; }
     if(mStream){ mStream.getTracks().forEach(function(t){t.stop();}); mStream=null; }
-    if(mCtx){ try{mCtx.close();}catch(e){} mCtx=null; mAnalyser=null; }
+    if(mCtx){ try{mCtx.close();}catch(e){} mCtx=null; }
     partialEl.style.display="none";
     autoBtn.classList.remove("listening");
     autoBtn.textContent="🎤";
     setStatus("通訳を停止しました");
+    if(pending) translateAudio(encodeWav(pending,srcRate));
   }
   autoBtn.addEventListener("click",function(){
     unlockAudio();
@@ -721,7 +729,14 @@
   function openSheet(){ populateVoiceSelects(); syncSeg(); sheet.style.display="block"; overlay.style.display="block"; }
   function closeSheet(){
     var k=document.getElementById("apiKey").value.trim();
-    if(k!==settings.apiKey){ settings.apiKey=k; saveSettings(); modelIdx=0; }
+    if(k!==settings.apiKey){
+      settings.apiKey=k; saveSettings(); modelIdx=0;
+      if(k){
+        setStatus("APIキーを確認しています…");
+        geminiText("こんにちは").then(function(){ setStatus("APIキーを確認できました ✓ マイクボタンで開始できます"); })
+        .catch(function(e){ setStatus(geminiErrorMsg(e)); });
+      }
+    }
     sheet.style.display="none"; overlay.style.display="none"; applyMode();
   }
   document.getElementById("openSheet").addEventListener("click",openSheet);
