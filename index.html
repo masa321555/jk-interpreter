@@ -334,7 +334,7 @@
         if(btn){ btn.classList.remove("speaking"); if(currentUtterBtn===btn) currentUtterBtn=null; }
         setTimeout(function(){
           if(!synth.speaking){ speakingNow=false; resumeRecAfterSpeak(); }
-        },500);
+        },300);
       };
       u.onend=done; u.onerror=done;
       synth.speak(u);
@@ -370,14 +370,13 @@
   function sessionActive(){ return !!activeLang||autoActive; }
 
   /* ---------- Gemini ---------- */
-  var MODELS=["gemini-2.5-flash","gemini-2.0-flash","gemini-flash-latest"];
+  var MODELS=["gemini-2.5-flash-lite","gemini-2.5-flash","gemini-2.0-flash","gemini-flash-latest"];
   var modelIdx=0;
   function geminiCall(parts){
-    var body={
-      contents:[{parts:parts}],
-      generationConfig:{response_mime_type:"application/json",temperature:0.2}
-    };
     var attempt=function(i){
+      var gc={response_mime_type:"application/json",temperature:0.1,maxOutputTokens:400};
+      if(MODELS[i].indexOf("gemini-2.5")===0) gc.thinkingConfig={thinkingBudget:0};
+      var body={contents:[{parts:parts}],generationConfig:gc};
       var url="https://generativelanguage.googleapis.com/v1beta/models/"+MODELS[i]+":generateContent?key="+encodeURIComponent(settings.apiKey.trim());
       return fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
       .then(function(r){
@@ -487,7 +486,7 @@
   var pcm=[],pcmLen=0,srcRate=48000;
   var chunkHadSpeech=false,chunkSpeechMs=0,silenceMs=0,chunkMs=0;
   var noiseFloor=0.01,calibMs=0,calibAcc=0,calibN=0;
-  var SILENCE_CUT=1200, MIN_SPEECH=350, MAX_CHUNK=15000;
+  var SILENCE_CUT=850, MIN_SPEECH=350, MAX_CHUNK=15000;
 
   var pausedForSpeak=false;
   function pauseRecForSpeak(){
